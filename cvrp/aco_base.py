@@ -349,14 +349,9 @@ class ACO():
             new_subroutes = []
             new_cost=0
             for r in subroutes:
-                # (a) cheapest-insertion refinement (existing)
                 new_subroute, c = self.insertion(r)
-                # (b) NEW 2-opt pass
-                new_subroute = torch.tensor(new_subroute, device=self.device)
-                new_subroute = self.two_opt_route(new_subroute)
-                new_cost += c  # 2-opt is cost-neutral here; Δ added later
+                new_cost += c
                 new_subroutes.append(new_subroute)
-
             if new_cost < costs[i]:
                 paths[:, i] = self.merge_subroutes(new_subroutes, paths.size(0))
                 costs[i] = new_cost
@@ -365,7 +360,7 @@ class ACO():
     def intensification_phase(self, paths, costs, best_idx):
         ogroute, ogcost = self.shortest_path, self.lowest_cost
         subroutes = self.get_subroutes(ogroute, end_with_zero=True)
-        demands = torch.tensor([self.demand[r].sum() for r in subroutes], device=self.device)
+        demands = torch.tensor([self.demand[r].sum() for r in subroutes])
         # print(*subroutes, sep='\n')
         best_neighbour = (None, 0.0)
         for func in [self.N1_neighbourhood]: # ,self.N2_neighbourhood]:
@@ -386,41 +381,6 @@ class ACO():
         self.pheromone = self.pheromone * (self.decay * 0.5) + 0.01
         for path, cost in self.elite_pool:
             self.pheromone[path[:-1], torch.roll(path, shifts=-1)[:-1]] += 1.0/cost
-
-# ────────────────────────────────────────────────────────────────
-# 2-opt: removes edge crossings inside a single sub-route
-# ────────────────────────────────────────────────────────────────
-    @torch.no_grad()
-    def two_opt_route(self, route: torch.Tensor) -> torch.Tensor:
-        """
-        In-place 2-opt until no improving exchange is found.
-        `route` is a 1-D tensor like [0, i₁, i₂, …, iₘ, 0].
-        Returns the (possibly modified) same tensor for convenience.
-        """
-        improved = True
-        while improved:
-            improved = False
-            m = len(route)         # includes both depots
-            # loop over all non-adjacent edge pairs (a-b, c-d)
-            for i in range(1, m - 2):          # skip first depot edge
-                a = route[i - 1]
-                b = route[i]
-                for j in range(i + 2, m - 1):  # ensure edges are disjoint
-                    c = route[j]
-                    d = route[j + 1]
-                    # Δ = cost(new) − cost(old)
-                    delta = (
-                        self.distances[a, c] + self.distances[b, d]
-                        - self.distances[a, b] - self.distances[c, d]
-                    )
-                    if delta < -1e-6:          # strict improvement
-                        # reverse the segment (b … c)
-                        route[i : j + 1] = torch.flip(route[i : j + 1], dims=[0])
-                        improved = True
-                        break                  # restart outer loop
-                if improved:
-                    break
-        return route
 
 
 if __name__=="__main__":

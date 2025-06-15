@@ -1,4 +1,5 @@
 import time
+import csv
 import torch
 from torch.distributions import Categorical, kl
 
@@ -9,7 +10,7 @@ from utils import *
 torch.manual_seed(1234)
 
 EPS = 1e-10
-device = 'cpu'
+device = 'cuda:0'
 
 def infer_instance(model, demands, distances, n_ants, t_aco_diff):
     if model:
@@ -22,14 +23,16 @@ def infer_instance(model, demands, distances, n_ants, t_aco_diff):
             demand=demands,
             n_ants=n_ants,
             heuristic=heu_mat,
-            device=device
+            device=device,
+            adaptive=True
         )
     else:
         aco = ACO(
             distances=distances,
             demand=demands,
             n_ants=n_ants,
-            device=device
+            device=device,
+            adaptive=True
         )
         
     results = torch.zeros(size=(len(t_aco_diff),), device=device)
@@ -52,24 +55,35 @@ def test(dataset, model, n_ants, t_aco):
     return sum_results / len(dataset), end-start
 
 
+# Output
+output_csv = "test_results.csv"
+with open(output_csv, mode="w", newline="") as file:
+    writer = csv.writer(file)
+    writer.writerow(["n_node", "T", "Average Objective", "Model"])
 
-n_ants = 20
-t_aco = [1, 10, 20, 30, 40, 50, 100]
+    n_ants = 5
+    t_aco = [1, 10, 20, 30]
 
-for n_node in [20, 100, 500]:
-    
-    test_list = load_test_dataset(n_node, device)
-    
-    net = Net().to(device)
-    net.load_state_dict(torch.load(f'./pretrained/cvrp/cvrp{n_node}.pt', map_location=device))
-    avg_aco_best, duration = test(test_list, net, n_ants, t_aco)
-    print('total duration: ', duration)
-    for i, t in enumerate(t_aco):
-        print("T={}, average obj. is {}.".format(t, avg_aco_best[i])) 
+    for n_node in [20, 100]:
+        test_list = load_test_dataset(n_node, device)
 
-    avg_aco_best, duration = test(test_list, None, n_ants, t_aco)
-    print('total duration: ', duration)
-    for i, t in enumerate(t_aco):
-        print("T={}, average obj. is {}.".format(t, avg_aco_best[i]))    
-        
-    print()   
+        # DeepACO
+        net = Net().to(device)
+        net.load_state_dict(torch.load(f'./pretrained/cvrp/cvrp{n_node}.pt', map_location=device))
+        avg_aco_best, duration = test(test_list, net, n_ants, t_aco)
+        print('DeepACO - total duration: ', duration)
+        for i, t in enumerate(t_aco):
+            avg = avg_aco_best[i].item()
+            print("T={}, average obj. is {}.".format(t, avg))
+            writer.writerow([n_node, t, avg, "DeepACO"])
+
+        # Vanilla ACO
+        avg_aco_best, duration = test(test_list, None, n_ants, t_aco)
+        print('VanillaACO - total duration: ', duration)
+        for i, t in enumerate(t_aco):
+            avg = avg_aco_best[i].item()
+            print("T={}, average obj. is {}.".format(t, avg))
+            writer.writerow([n_node, t, avg, "VanillaACO"])
+
+        print()
+   
